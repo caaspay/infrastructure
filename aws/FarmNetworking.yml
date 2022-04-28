@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Networking for our Farm setup
+
+Parameters:
+  FarmZone:
+    Description: Which AvailabilityZone the farm will belong to.
+    Type: String
+    # Singapore (since thats the closest to us)
+    Default: ap-southeast-1
+
+Resources:
+  FarmVpc:
+    Description: Main Farm VPC for all instances.
+    Type: AWS::EC2::VPC
+    DeletionPolicy: Retain
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: farm-vpc
+
+  # Public network setup
+
+  FarmVpcIGW:
+    Description: To connect us to/from the internet.
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: farm-igw
+
+  FarmVpcIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref FarmVpcIGW
+      VpcId: !Ref FarmVpc
+
+  FarmVpcPublicSubnet:
+    Description: Farm public subnet with intenet access and public IPs required.
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref FarmZone 
+      CidrBlock: 10.1.1.0/24
+      VpcId: !Ref FarmVpc
+      # EIP Must be attached to instance at creation instead
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: farm-vpc-public-subnet
+
+  FarmVpcPublicSubnetRouteTable:
+    Description: A route table for the public subnet.
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref FarmVpc
+      Tags:
+        - Key: Name
+          Value: farm-vpc-public-subnet-route-tabel
+
+  FarmVpcIGWRoute:
+    Description: The route from the public subnet to the internet
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref FarmVpcPublicSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref FarmVpcIGW
+
+  FarmVpcPublicSubnetRouteAttachment:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref FarmVpcPublicSubnetRouteTable
+      SubnetId: !Ref FarmVpcPublicSubnet
+
+  # Private network setup
+
+  FarmNatEIP:
+    Description: An elastic IP for the farm NAT gateway
+    Type: AWS::EC2::EIP
+    DependsOn: FarmVpc
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: farm-NAT-IP
+
+  FarmNatGateway:
+    Description: To access the internet from the private subnet
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt FarmNatEIP.AllocationId
+      SubnetId: !Ref FarmVpcPublicSubnet
+      Tags:
+        - Key: Name
+          Value: farm-NAT
+
+  FarmVpcPrivateSubnet:
+    Description: Farm private subnet no public IPs
+    Type: AWS::EC2::Subnet
+    DeletionPolicy: Retain
+    Properties:
+      AvailabilityZone: !Ref FarmZone
+      CidrBlock: 10.1.2.0/24
+      VpcId: !Ref FarmVpc
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: farm-vpc-private-subnet
+
+  FarmVpcPrivateSubnetRouteTable:
+    Description: Routes of the private subnet
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref FarmVpc
+      Tags:
+        - Key: Name
+          Value: farm-vpc-private-subnet-route-table
+
+  FarmNatRoute:
+    Description: Add a route to the NAT gateway
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref FarmVpcPrivateSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref FarmNatGateway
+
+  FarmVpcPrivateSubnetRouteAttachment:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref FarmVpcPrivateSubnetRouteTable
+      SubnetId: !Ref FarmVpcPrivateSubnet
+
+Outputs:
+  FarmVpc:
+    Description: The Farm VPC ID
+    Value: !Ref FarmVpc
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpc'
+  FarmVpcPublicSubnet:
+    Description: The Farm public subnet ID
+    Value: !Ref FarmVpcPublicSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcPublicSubnet'
+  FarmVpcPublicSubnetCidr:
+    Description: The Farm public subnet cidr
+    Value: 10.1.1.0/24 # We can't get this from the subnet using GetAtt
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcPublicSubnetCidr'
+  FarmVpcPrivateSubnet:
+    Description: The Farm private subnet ID
+    Value: !Ref FarmVpcPrivateSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcPrivateSubnet'
+  FarmVpcPrivateSubnetCidr:
+    Description: The Farm private subnet cidr
+    Value: 10.1.2.0/24 # We can't get this from the subnet using GetAtt
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcPrivateSubnetCidr'
