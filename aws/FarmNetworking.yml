@@ -7,7 +7,7 @@ Parameters:
     Description: Which AvailabilityZone the farm will belong to.
     Type: String
     # Singapore (since thats the closest to us)
-    Default: ap-southeast-1
+    Default: ap-southeast-1a
 
 Resources:
   FarmVpc:
