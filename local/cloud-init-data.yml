@@ -1,0 +1,7 @@
+write_files:
+  - path: /etc/environment
+    content: |
+      http_proxy=http://10.1.0.38:8000
+    append: true
+apt:
+  proxy: http://10.1.0.38:8000

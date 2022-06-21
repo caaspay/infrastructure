@@ -1,0 +1,72 @@
+#cloud-config
+# We'd really like to cache things
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+          "insecure-registries":["registry.microservices.local:32000"],
+          "log-driver": "local",
+          "log-opts": {"max-size": "10m", "max-file": "3"},
+          "experimental": true
+      }
+[% FOREACH file IN write_files %]
+  - path: [% file.path %]
+    content: |
+      [% file.content %]
+    append: [% file.append %]
+[% END %]
+[% IF apt %]
+apt:
+  proxy: [%  apt.proxy %]
+[% END %]
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+packages:
+  # apt and repository handling
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg-agent
+  - software-properties-common
+  # Might want alternative .deb caching options, but since much of our installation
+  # goes through direct `curl` downloads then a systemwide proxy is a more comprehensive
+  # alternative:
+  # - squid-deb-proxy-client
+  # General system consistency
+  - chrony
+ntp:
+  enabled: true
+  ntp_client: chrony
+timezone: UTC
+locale: en_US.utf8
+users:
+- default
+- name: microservices
+  lock_passwd: true
+  shell: /bin/bash
+  groups:
+    - docker
+  sudo:
+    - ALL=(ALL) NOPASSWD:ALL
+  ssh_authorized_keys:
+    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCyWopbXvYRO8U9w8HfFu9vXBXRj0x/Gw1N9IJXlI1A1BoKT3zo2NS/VadAsTeVhwP7laSKxUG06EC4X+7aW/YzB7qyM2bYt8njCakTgqM+BrlQ17wKF/Bue2CkgjCTpTRMoe/bdO3dfJPnyjgfuILZeQ8eD1nwR8QjkuYzVLvj8ZqoitobXG5Q5E5Z20zqS+A352v44V/cVTRV9b3lcztfXPu6HwpgYJGVjf+H9PQxxbke4517/2pPjIdbvJ1NYGVPLOtXCzycDyfyxORR0o97j1tDEKpDIKSpYu8jXkgqkJu+zJqqWaDKp7QHlyowuM2aGoD1eD8bU6JLzoPNiQHuBmoqW7aMcB1LBwN/Q1wwMKgae6vHGWNr51sDRpM1qWq3UufOvf/yqh7rvPHK3JF3V5aG5KA3mbk0Ci8wR0CT19DBJBM1707yo7D8vLzG/OwCJT/JabSua4L2yyIJzshNc7wLTUc0Tsh+T7S9kxyzi2StQG6sr3ZbonuwAm1w8p/UWJdKnXT65fwygxKAxqz1+hlv0zRtqoWSk84Vb4+Jal0tzdpexypSC53CS52q4oy0B1ez87fBG3ELPJ0xu+4I3WkQ8GFHhgYymWzo2LMStjJB9t5TLcZMBIPxbmUsRfDMFleRw5Pani/w2Jgm8+lp3IRJ9YV/RDA5XLDgWG2Xlw== tom@binary.com"
+runcmd:
+  # Start with docker
+  - curl -fsSL http://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  - add-apt-repository "deb [arch=$(dpkg --print-architecture)] http://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  - apt-get update -y
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl start docker
+  - systemctl enable docker
+  # docker-compose needs to be a specific version (or later)
+  - curl -L "http://github.com/docker/compose/releases/download/1.28.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+  # Kubernetes stack
+  - curl -sfL http://get.k3s.io | sh -
+  - curl -sfL http://raw.githubusercontent.com/helm/helm/v3.5.3/scripts/get-helm-3 | bash -
+  [% FOREACH command IN extra_commands %]
+    - [% command %]
+  [% END %]
+final_message: "The system is finally up, after $UPTIME seconds"

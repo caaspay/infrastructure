@@ -1,0 +1,65 @@
+#cloud-config
+# We'd really like to cache things
+write_files:
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+          "insecure-registries":["registry.farm.local:32000"],
+          "log-driver": "local",
+          "log-opts": {"max-size": "10m", "max-file": "3"},
+          "experimental": true,
+          "data-root": "/FarmWeb/docker_data/"
+      }
+
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+packages:
+  # apt and repository handling
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg-agent
+  - software-properties-common
+  # Might want alternative .deb caching options, but since much of our installation
+  # goes through direct `curl` downloads then a systemwide proxy is a more comprehensive
+  # alternative:
+  # - squid-deb-proxy-client
+  # General system consistency
+  - chrony
+  - net-tools
+ntp:
+  enabled: true
+  ntp_client: chrony
+timezone: UTC
+locale: en_US.utf8
+mounts:
+  - [ /dev/sdf, /FarmWeb, "auto", "defaults,nofail", "0", "2" ]
+users:
+- default
+- name: farmer
+  lock_passwd: true
+  shell: /bin/bash
+  groups:
+    - docker
+  sudo:
+    - ALL=(ALL) NOPASSWD:ALL
+  ssh_authorized_keys:
+    - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDF/ehA/uGlSiaCpBqsVIabJibCKu9eGnGSOv3TThlkWX8CC/F4h7wW1hgBBqg7InDla5KtDSuCC8N3RtYeDCeiWhTLr7cvNdGmYBgmcXyM/awrlKxYjb38NFKz5FVqT+5wgtUazFSRLnsVCymy6P16+XZZoqeh8zIUmTaD67KRmQQZS2wd7+1teeV1nlfAzqkM3VKJk3gCL+GwvkQ2gIPcjbjVB0fJ4Kvkyye5qcv2fAl6wR3Ho2/XTycZN+VI2n8hDGhMF/McAWdiDi/IQepVv8Yzg4bXfKgXYhR8WjXDQlFjbu4AE+s6TifRU0EeNS5eCgQcmsqtSQn+d543ivYS93atXhKAUsNoD1OxJdhmbfFw6xhl7Tc1Nw25eeuxMRv+y3glgW8TL3z/j//cCOaNjuvwkOXh4v28O+RSelCc9GigHUW2TT5hH9j+fAJHGvB9xAnkksKMgHI/zKIRvxKNos8oWE5SBf6WzsCzSH2DHzUfh3qyx1SVT7Jm86eia0XSKiFvbjyf6pb25KEdWD4z1ahigy2SrHGRJ3PdNHDZ1VCLm8nexPGlwatMpCRmxZ0iv9obMhIjsyRAJ8EVGNoNivEM61EiVLKzkXd6xVHsazP2OPAPCxaAWE/tRkfM1YZli63+OGTsRqXFpaLZlavtzmwogLmRSc0S2npIj3g8Dw== vvnealv@gmail.com"
+runcmd:
+  # init mounted volume
+  - mkfs -t ext4 /dev/sdf
+  - mkdir /FarmWeb /FarmWeb/docker_data /FarmWeb/git
+  - mount /dev/sdf /FarmWeb
+  - echo "/dev/sdf /FarmWeb ext4 defaults,nofail 0 2" >> /etc/fstab
+  # Start with docker
+  - curl -fsSL http://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  - add-apt-repository "deb [arch=$(dpkg --print-architecture)] http://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  - apt-get update -y
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl start docker
+  - systemctl enable docker
+  # docker-compose needs to be a specific version (or later)
+  - curl -L "http://github.com/docker/compose/releases/download/1.28.5/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+  - chmod +x /usr/local/bin/docker-compose
+final_message: "The system is finally up, after $UPTIME seconds"

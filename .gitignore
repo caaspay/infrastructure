@@ -1,0 +1,7 @@
+*.crt
+*.key
+*.env
+*.log
+*.swp
+*.zip
+.idea/

@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: The ec2 setup for our microservices deployment
+
+Parameters:
+  NetworkingStack:
+    Description: Our VPCs stack name
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+  FarmZone:
+    Description: Which AvailabilityZone the farm will belong to.
+    Type: String
+    # Singapore (since thats the closest to us)
+    Default: ap-southeast-1a
+
+
+Resources:
+  # Setting RDS instances
+  FarmK3sDSRDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Used for general RDS to be accessible from default subnets
+      DBSubnetGroupName: 'FarmK3sDSSubnetGroups'
+      SubnetIds:
+        - Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+        - Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPrivateSubnet'
+
+  FarmK3sDSRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the necessary communication to K3s Datastore RDS
+      GroupName: FarmK3sDSSG
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVPC'
+      # Ingress will be added on Servers security group creation
+
+  PG13ParameterGroup:
+    Type: 'AWS::RDS::DBParameterGroup'
+    Properties:
+      Description: 'Farm RDS Postgres 13 default settings'
+      Family: postgres13
+      Parameters:
+        # For now use defaults
+        # https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Parameters.html
+        # Defaults and details on parameters we can use
+        authentication_timeout: '30'
+
+  FarmK3sDSDBPassword:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Retain
+    Properties:
+      Description: A password for the k3s datastore (postgres db)
+      Name: k3s-ds-password
+      GenerateSecretString:
+        ExcludeCharacters: '"@/'
+        PasswordLength: 32
+        RequireEachIncludedType: true
+
+  K3sDSRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 5
+      AutoMinorVersionUpgrade: true
+      AvailabilityZone: !Ref FarmZone
+      BackupRetentionPeriod: 0
+      DBInstanceClass: db.t4g.micro
+      DBInstanceIdentifier: 'k3s-ds-db'
+      DBName: k3sds
+      DBParameterGroupName:
+        !Ref PG13ParameterGroup
+      VPCSecurityGroups:
+        - !GetAtt FarmK3sDSRDSSecurityGroup.GroupId
+      DBSubnetGroupName:
+        !Ref FarmK3sDSRDSSubnetGroup
+      DeletionProtection: true
+      Engine: postgres
+      EngineVersion: 13.4
+      LicenseModel: 'postgresql-license'
+      MasterUsername: postgres
+      MasterUserPassword: '{{resolve:secretsmanager:k3s-ds-password:SecretString}}'
+      # Distable monitoring for now
+      MonitoringInterval: 0
+      MultiAZ: false
+      OptionGroupName: 'default:postgres-13'
+      PubliclyAccessible: false
+      StorageEncrypted: false
+      StorageType: standard
+      CopyTagsToSnapshot: true
+
+Outputs:
+  FarmK3sDSSecGrp:
+    Description: The Farm K3s DataStore Security Group ID
+    Value: !GetAtt FarmK3sDSRDSSecurityGroup.GroupId
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmK3sDSSecGrp'

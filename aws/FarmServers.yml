@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: The setup for our farm servers and components
+
+Parameters:
+  NetworkingStack:
+    Description: Our VPCs stack name
+    Type: String
+    MinLength: 1
+    MaxLength: 255
+    AllowedPattern: "^[a-zA-Z][-a-zA-Z0-9]*$"
+  PublicServerUD:
+    Description: cloud-init directives for public network server
+    Type: String
+  InternalServerUD:
+    Description: cloud-init directives for private network server
+    Type: String
+  K3sServerUD:
+    Description: cloud-init directives for K3s master server
+    Type: String
+  K3sWorkerUD:
+    Description: cloud-init directives for K3s worker server
+    Type: String
+  ConfigBucket:
+    Description: S3 Bucket to be used to maintian config and script files for servers
+    Type: String
+
+
+Resources:
+  FarmBastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the necessary communication to bastion server
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          # Everything but
+          # Specific IPs /32 for maximum security
+          CidrIp: 0.0.0.0/0
+          Description: 'Certain IP to allow'
+
+  FarmBastion:
+    Description: A server to control access to our farm instances
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0d058fe428540cd89
+      InstanceType: t3.nano
+      KeyName: 'farm-key'
+      SecurityGroupIds:
+        - !GetAtt FarmBastionSecurityGroup.GroupId
+      SubnetId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: 8
+            DeleteOnTermination: true
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: farm-bastion-server
+
+  FarmSSHEIP:
+    Description: An elastic IP for SSH traffic
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: farm-ssh-IP
+
+  FarmSSHServerToIP:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt FarmSSHEIP.AllocationId
+      InstanceId: !Ref FarmBastion
+
+  FarmInternalServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the necessary communication from/to the farm servers
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          Description: 'Farm public subnet servers (bastion)'
+          CidrIp:
+            Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnetCidr'
+
+  # Add needed components for web traffic
+  FarmPublicNetSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow the web communication
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTP Internet traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: 'HTTPS Internet traffic'
+
+  FarmWebServer:
+    Description: The main server for deploying microservices
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: ami-0d058fe428540cd89
+      InstanceType: t3.medium
+      KeyName: 'farm-key'
+      UserData: !Ref PublicServerUD
+      SecurityGroupIds:
+        - !GetAtt FarmInternalServerSecurityGroup.GroupId
+        - !GetAtt FarmPublicNetSecurityGroup.GroupId
+      SubnetId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp2
+            VolumeSize: 8
+            DeleteOnTermination: true
+            Encrypted: true
+      Tags:
+        - Key: Name
+          Value: farm-web-server
+
+  FarmWebEIP:
+    Description: An elastic IP for web traffic
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: farm-web-IP
+
+  FarmWebServerToIP:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt FarmWebEIP.AllocationId
+      InstanceId: !Ref FarmWebServer
+
+  FarmWebServerVol:
+    Type: AWS::EC2::Volume
+    Properties:
+      VolumeType: gp2
+      Size: 14
+      AvailabilityZone: !GetAtt FarmWebServer.AvailabilityZone
+      Tags:
+        - Key: Name
+          Value: farm-web-volume
+    DeletionPolicy: Retain
+
+  FarmWebVolMount:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref FarmWebServer
+      VolumeId: !Ref FarmWebServerVol
+      Device: /dev/sdf
+
