@@ -43,6 +43,7 @@ case $stack_name in
     --s3-prefix "$networking_stack_name" \
     --role-arn "$networking_role" \
     --capabilities CAPABILITY_IAM \
+    --profile $profile \
     --force-upload
   ;;
 "datastore")
@@ -53,6 +54,7 @@ case $stack_name in
     --s3-prefix "$rds_stack_name" \
     --role-arn "$rds_role" \
     --parameter-override NetworkingStack=$networking_stack_name \
+    --profile $profile \
     --force-upload
   ;;
 "servers")
@@ -61,7 +63,7 @@ case $stack_name in
   if echo "${config_bucket_exists}" | grep -q 'error'
   then
     echo "Creating config S3 bucket"
-    aws s3api create-bucket --region $aws_region --bucket $config_bucket --acl private --create-bucket-configuration LocationConstraint=$aws_region --object-ownership BucketOwnerEnforced
+    aws s3api create-bucket --region $aws_region --bucket $config_bucket --acl private --profile $profile --create-bucket-configuration LocationConstraint=$aws_region --object-ownership BucketOwnerEnforced
   fi
   aws s3 cp  --recursive ./files/ "s3://$config_bucket/" 
   # Deploy the stack
@@ -72,13 +74,14 @@ case $stack_name in
     --s3-prefix "$servers_stack_name" \
     --role-arn "$servers_role" \
     --parameter-override NetworkingStack=$networking_stack_name \
-    PublicServerUD="$(base64 -b 0 ./public-server-init.yml)" \
-    InternalServerUD="$(base64 -b 0 ./private-server-init.yml)" \
+    PublicServerUD="$(base64 -b 0 -i ./public-server-init.yml)" \
+    InternalServerUD="$(base64 -b 0 -i ./private-server-init.yml)" \
     ConfigBucket=$config_bucket \
     RDSStack=$rds_stack_name \
-    K3sServerUD="$(base64 -b 0 ./k3s-master-init.yml)" \
-    K3sWorkerUD="$(base64 -b 0 ./k3s-worker-init.yml)" \
+    K3sServerUD="$(base64 -b 0 -i ./k3s-master-init.yml)" \
+    K3sWorkerUD="$(base64 -b 0 -i ./k3s-worker-init.yml)" \
     --capabilities CAPABILITY_IAM \
+    --profile $profile \
     --force-upload
   ;;
 *)

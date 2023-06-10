@@ -42,42 +42,6 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: 'Certain IP to allow'
 
-  FarmBastion:
-    Description: A server to control access to our farm instances
-    Type: AWS::EC2::Instance
-    Properties:
-      ImageId: ami-0d058fe428540cd89
-      InstanceType: t3.nano
-      KeyName: 'farm-key'
-      SecurityGroupIds:
-        - !GetAtt FarmBastionSecurityGroup.GroupId
-      SubnetId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
-      BlockDeviceMappings:
-        - DeviceName: /dev/sda1
-          Ebs:
-            VolumeType: gp2
-            VolumeSize: 8
-            DeleteOnTermination: true
-            Encrypted: true
-      Tags:
-        - Key: Name
-          Value: farm-bastion-server
-
-  FarmSSHEIP:
-    Description: An elastic IP for SSH traffic
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: farm-ssh-IP
-
-  FarmSSHServerToIP:
-    Type: AWS::EC2::EIPAssociation
-    Properties:
-      AllocationId: !GetAtt FarmSSHEIP.AllocationId
-      InstanceId: !Ref FarmBastion
 
   FarmInternalServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -88,7 +52,7 @@ Resources:
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
-          ToPort: 22
+          ToPort: 500
           Description: 'Farm public subnet servers (bastion)'
           CidrIp:
             Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnetCidr'
@@ -112,7 +76,169 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: 'HTTPS Internet traffic'
 
-  FarmWebServer:
+  FarmCFWebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: farm-cloudflare-rules
+      GroupDescription: Allow internet facing CloudFlare only communication to network load balancer
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      SecurityGroupIngress:
+        # CloudFlare IPs
+        # https://www.cloudflare.com/ips-v4
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 173.245.48.0/20
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 173.245.48.0/20
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 103.21.244.0/22
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 103.21.244.0/22
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 103.22.200.0/22
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 103.22.200.0/22
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 103.31.4.0/22
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 103.31.4.0/22
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 141.101.64.0/18
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 141.101.64.0/18
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 108.162.192.0/18
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 108.162.192.0/18
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 190.93.240.0/20
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 190.93.240.0/20
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 188.114.96.0/20
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 188.114.96.0/20
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 197.234.240.0/22
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 197.234.240.0/22
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 198.41.128.0/17
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 198.41.128.0/17
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 162.158.0.0/15
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 162.158.0.0/15
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 104.16.0.0/13
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 104.16.0.0/13
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 104.24.0.0/14
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 104.24.0.0/14
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 172.64.0.0/13
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 172.64.0.0/13
+          Description: 'HTTPS traffic'
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 131.0.72.0/22
+          Description: 'HTTP traffic'
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 131.0.72.0/22
+          Description: 'HTTPS traffic'
+
+
+  FarmMainServer:
     Description: The main server for deploying microservices
     Type: AWS::EC2::Instance
     Properties:
@@ -122,9 +248,10 @@ Resources:
       UserData: !Ref PublicServerUD
       SecurityGroupIds:
         - !GetAtt FarmInternalServerSecurityGroup.GroupId
-        - !GetAtt FarmPublicNetSecurityGroup.GroupId
+        - !GetAtt FarmCFWebSecurityGroup.GroupId
+        - !GetAtt FarmBastionSecurityGroup.GroupId
       SubnetId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPrivateSubnet'
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
@@ -134,38 +261,113 @@ Resources:
             Encrypted: true
       Tags:
         - Key: Name
-          Value: farm-web-server
+          Value: farm-main-server
 
-  FarmWebEIP:
-    Description: An elastic IP for web traffic
+  FarmMainServerVol:
+    Type: AWS::EC2::Volume
+    Properties:
+      VolumeType: gp3
+      Size: 14
+      AvailabilityZone: !GetAtt FarmMainServer.AvailabilityZone
+      Encrypted: true
+      SnapshotId: snap-0abe695855b463c1d
+      Tags:
+        - Key: Name
+          Value: farm-main-volume
+    DeletionPolicy: Retain
+
+  FarmMainVolMount:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      InstanceId: !Ref FarmMainServer
+      VolumeId: !Ref FarmMainServerVol
+      Device: /dev/sdf
+
+
+  # Network Load Balancer setup
+
+  # Add IP address to be publicly served. We need one for each target group.
+  FarmEIP:
+    Description: An elastic IP for traffic
     Type: AWS::EC2::EIP
     Properties:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: farm-web-IP
+          Value: farm-EIP
 
-  FarmWebServerToIP:
-    Type: AWS::EC2::EIPAssociation
+  FarmNetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      AllocationId: !GetAtt FarmWebEIP.AllocationId
-      InstanceId: !Ref FarmWebServer
+      Name: 'farm-traffic-NLB'
+      SubnetMappings:
+        - AllocationId: !GetAtt FarmEIP.AllocationId
+          SubnetId:
+            Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+      Type: network
 
-  FarmWebServerVol:
-    Type: AWS::EC2::Volume
+  FarmNLBSSHTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      VolumeType: gp2
-      Size: 14
-      AvailabilityZone: !GetAtt FarmWebServer.AvailabilityZone
-      Tags:
-        - Key: Name
-          Value: farm-web-volume
-    DeletionPolicy: Retain
+      Name: 'farm-ssh-TG'
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      Port: 22
+      Protocol: TCP
+      TargetType: instance
+      Targets:
+        - Id: !Ref FarmMainServer
 
-  FarmWebVolMount:
-    Type: AWS::EC2::VolumeAttachment
+  FarmNLBHTTPTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      InstanceId: !Ref FarmWebServer
-      VolumeId: !Ref FarmWebServerVol
-      Device: /dev/sdf
+      Name: 'farm-http-TG'
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      Port: 80
+      Protocol: TCP
+      TargetType: instance
+      Targets:
+        - Id: !Ref FarmMainServer
 
+  FarmNLBHTTPSTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: 'farm-https-TG'
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+      Port: 443
+      Protocol: TCP
+      TargetType: instance
+      Targets:
+        - Id: !Ref FarmMainServer
+
+  FarmLoadBalancerSSHListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+      Port: 22884
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FarmNLBSSHTargetGroup
+
+  FarmLoadBalancerHTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+      Port: 80
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FarmNLBHTTPTargetGroup
+
+  FarmLoadBalancerHTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+      Port: 443
+      Protocol: TCP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FarmNLBHTTPSTargetGroup
