@@ -2,13 +2,6 @@ AWSTemplateFormatVersion: "2010-09-09"
 
 Description: Networking for our Farm setup
 
-Parameters:
-  FarmZone:
-    Description: Which AvailabilityZone the farm will belong to.
-    Type: String
-    # Singapore (since thats the closest to us)
-    Default: ap-southeast-1a
-
 Resources:
   FarmVpc:
     Description: Main Farm VPC for all instances.
@@ -43,11 +36,17 @@ Resources:
     Description: Farm public subnet with intenet access and public IPs required.
     Type: AWS::EC2::Subnet
     Properties:
-      AvailabilityZone: !Ref FarmZone 
-      CidrBlock: 10.1.1.0/24
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: 'AWS::Region'
+      CidrBlock: !Select [ 0, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]]
       VpcId: !Ref FarmVpc
       # EIP Must be attached to instance at creation instead
       MapPublicIpOnLaunch: false
+      PrivateDnsNameOptionsOnLaunch:
+        EnableResourceNameDnsARecord: true
+        HostnameType: ip-name
       Tags:
         - Key: Name
           Value: farm-vpc-public-subnet
@@ -87,25 +86,31 @@ Resources:
         - Key: Name
           Value: farm-NAT-IP
 
-  FarmNatGateway:
-    Description: To access the internet from the private subnet
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt FarmNatEIP.AllocationId
-      SubnetId: !Ref FarmVpcPublicSubnet
-      Tags:
-        - Key: Name
-          Value: farm-NAT
+            #  FarmNatGateway:
+            #    Description: To access the internet from the private subnet
+            #    Type: AWS::EC2::NatGateway
+            #    Properties:
+            #      AllocationId: !GetAtt FarmNatEIP.AllocationId
+            #      SubnetId: !Ref FarmVpcPublicSubnet
+            #      Tags:
+            #        - Key: Name
+            #          Value: farm-NAT
 
   FarmVpcPrivateSubnet:
     Description: Farm private subnet no public IPs
     Type: AWS::EC2::Subnet
     DeletionPolicy: Retain
     Properties:
-      AvailabilityZone: !Ref FarmZone
-      CidrBlock: 10.1.2.0/24
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: 'AWS::Region'
+      CidrBlock: !Select [ 2, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]]
       VpcId: !Ref FarmVpc
       MapPublicIpOnLaunch: false
+      PrivateDnsNameOptionsOnLaunch:
+        EnableResourceNameDnsARecord: true
+        HostnameType: ip-name
       Tags:
         - Key: Name
           Value: farm-vpc-private-subnet
@@ -125,13 +130,59 @@ Resources:
     Properties:
       RouteTableId: !Ref FarmVpcPrivateSubnetRouteTable
       DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref FarmNatGateway
+      GatewayId: !Ref FarmVpcIGW
+        #      NatGatewayId: !Ref FarmNatGateway
 
   FarmVpcPrivateSubnetRouteAttachment:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
+#RouteTableId: !Ref FarmVpcPublicSubnetRouteTable
       RouteTableId: !Ref FarmVpcPrivateSubnetRouteTable
       SubnetId: !Ref FarmVpcPrivateSubnet
+
+  # no static ip subnet
+
+  FarmVpcNormalSubnet:
+    Description: Farm normal subnet with intenet access and public IPs required.
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: 'AWS::Region'
+      CidrBlock: !Select [ 4, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]]
+      VpcId: !Ref FarmVpc
+      # EIP Must be attached to instance at creation instead
+      MapPublicIpOnLaunch: false
+      PrivateDnsNameOptionsOnLaunch:
+        EnableResourceNameDnsARecord: true
+        HostnameType: ip-name
+      Tags:
+        - Key: Name
+          Value: farm-vpc-normal-subnet
+
+  FarmVpcNormalSubnetRouteTable:
+    Description: A route table for normal subnet.
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref FarmVpc
+      Tags:
+        - Key: Name
+          Value: farm-vpc-normal-subnet-route-tabel
+
+  FarmNormalVpcIGWRoute:
+    Description: The route from normal subnet to the internet
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref FarmVpcNormalSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref FarmVpcIGW
+
+  FarmVpcNormalSubnetRouteAttachment:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref FarmVpcNormalSubnetRouteTable
+      SubnetId: !Ref FarmVpcNormalSubnet
 
 Outputs:
   FarmVpc:
@@ -146,7 +197,7 @@ Outputs:
       Name: !Sub '${AWS::StackName}-FarmVpcPublicSubnet'
   FarmVpcPublicSubnetCidr:
     Description: The Farm public subnet cidr
-    Value: 10.1.1.0/24 # We can't get this from the subnet using GetAtt
+    Value: !Select [ 0, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]]
     Export:
       Name: !Sub '${AWS::StackName}-FarmVpcPublicSubnetCidr'
   FarmVpcPrivateSubnet:
@@ -156,6 +207,16 @@ Outputs:
       Name: !Sub '${AWS::StackName}-FarmVpcPrivateSubnet'
   FarmVpcPrivateSubnetCidr:
     Description: The Farm private subnet cidr
-    Value: 10.1.2.0/24 # We can't get this from the subnet using GetAtt
+    Value: !Select [ 2, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]] # We can't get this from the subnet using GetAtt
     Export:
       Name: !Sub '${AWS::StackName}-FarmVpcPrivateSubnetCidr'
+  FarmVpcNormalSubnet:
+    Description: The Farm normal subnet ID
+    Value: !Ref FarmVpcNormalSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcNormalSubnet'
+  FarmVpcNormalSubnetCidr:
+    Description: The Farm normal subnet cidr
+    Value: !Select [ 4, !Cidr [ !GetAtt FarmVpc.CidrBlock, 12, 8 ]] # We can't get this from the subnet using GetAtt
+    Export:
+      Name: !Sub '${AWS::StackName}-FarmVpcNormalSubnetCidr'

@@ -6,9 +6,9 @@ if [ -f ".env" ]; then
 fi
 
 profile=farm
-aws_region=ap-southeast-1
-templates_bucket=farm-cloudformation-templates
-config_bucket=farm-config-scripts
+aws_region=us-east-2
+templates_bucket=${aws_region}-farm-cloudformation-templates
+config_bucket=${aws_region}-farm-config-scripts
 
 networking_stack_file=FarmNetworking.yml
 networking_stack_name=FarmNetworking

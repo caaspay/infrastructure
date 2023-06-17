@@ -242,20 +242,20 @@ Resources:
     Description: The main server for deploying microservices
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: ami-0d058fe428540cd89
-      InstanceType: t3.medium
+      ImageId: ami-0e3ba8d178c4b6a4b
+      InstanceType: t2.medium
       KeyName: 'farm-key'
-      UserData: !Ref PublicServerUD
+      UserData: !Ref InternalServerUD
       SecurityGroupIds:
         - !GetAtt FarmInternalServerSecurityGroup.GroupId
         - !GetAtt FarmCFWebSecurityGroup.GroupId
         - !GetAtt FarmBastionSecurityGroup.GroupId
       SubnetId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPrivateSubnet'
+        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcNormalSubnet'
       BlockDeviceMappings:
         - DeviceName: /dev/sda1
           Ebs:
-            VolumeType: gp2
+            VolumeType: gp3
             VolumeSize: 8
             DeleteOnTermination: true
             Encrypted: true
@@ -268,9 +268,13 @@ Resources:
     Properties:
       VolumeType: gp3
       Size: 14
-      AvailabilityZone: !GetAtt FarmMainServer.AvailabilityZone
+      #AvailabilityZone: !GetAtt FarmMainServer.AvailabilityZone
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: 'AWS::Region'
       Encrypted: true
-      SnapshotId: snap-0abe695855b463c1d
+      SnapshotId: snap-0f9d66d8f0b401393
       Tags:
         - Key: Name
           Value: farm-main-volume
@@ -281,7 +285,7 @@ Resources:
     Properties:
       InstanceId: !Ref FarmMainServer
       VolumeId: !Ref FarmMainServerVol
-      Device: /dev/sdf
+      Device: /dev/xvdf
 
 
   # Network Load Balancer setup
@@ -296,78 +300,85 @@ Resources:
         - Key: Name
           Value: farm-EIP
 
-  FarmNetworkLoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+  FarmEIPtoServer:
+    Description: Associate to instance
+    Type: AWS::EC2::EIPAssociation
     Properties:
-      Name: 'farm-traffic-NLB'
-      SubnetMappings:
-        - AllocationId: !GetAtt FarmEIP.AllocationId
-          SubnetId:
-            Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
-      Type: network
+      AllocationId: !GetAtt FarmEIP.AllocationId
+      InstanceId: !Ref FarmMainServer
 
-  FarmNLBSSHTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: 'farm-ssh-TG'
-      VpcId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
-      Port: 22
-      Protocol: TCP
-      TargetType: instance
-      Targets:
-        - Id: !Ref FarmMainServer
-
-  FarmNLBHTTPTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: 'farm-http-TG'
-      VpcId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
-      Port: 80
-      Protocol: TCP
-      TargetType: instance
-      Targets:
-        - Id: !Ref FarmMainServer
-
-  FarmNLBHTTPSTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: 'farm-https-TG'
-      VpcId:
-        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
-      Port: 443
-      Protocol: TCP
-      TargetType: instance
-      Targets:
-        - Id: !Ref FarmMainServer
-
-  FarmLoadBalancerSSHListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
-      Port: 22884
-      Protocol: TCP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FarmNLBSSHTargetGroup
-
-  FarmLoadBalancerHTTPListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
-      Port: 80
-      Protocol: TCP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FarmNLBHTTPTargetGroup
-
-  FarmLoadBalancerHTTPSListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
-      Port: 443
-      Protocol: TCP
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FarmNLBHTTPSTargetGroup
+#  FarmNetworkLoadBalancer:
+#    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+#    Properties:
+#      Name: 'farm-traffic-NLB'
+#      SubnetMappings:
+#        - AllocationId: !GetAtt FarmEIP.AllocationId
+#          SubnetId:
+#            Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpcPublicSubnet'
+#      Type: network
+#
+#  FarmNLBSSHTargetGroup:
+#    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+#    Properties:
+#      Name: 'farm-ssh-TG'
+#      VpcId:
+#        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+#      Port: 22
+#      Protocol: TCP
+#      TargetType: instance
+#      Targets:
+#        - Id: !Ref FarmMainServer
+#
+#  FarmNLBHTTPTargetGroup:
+#    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+#    Properties:
+#      Name: 'farm-http-TG'
+#      VpcId:
+#        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+#      Port: 80
+#      Protocol: TCP
+#      TargetType: instance
+#      Targets:
+#        - Id: !Ref FarmMainServer
+#
+#  FarmNLBHTTPSTargetGroup:
+#    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+#    Properties:
+#      Name: 'farm-https-TG'
+#      VpcId:
+#        Fn::ImportValue: !Sub '${NetworkingStack}-FarmVpc'
+#      Port: 443
+#      Protocol: TCP
+#      TargetType: instance
+#      Targets:
+#        - Id: !Ref FarmMainServer
+#
+#  FarmLoadBalancerSSHListener:
+#    Type: AWS::ElasticLoadBalancingV2::Listener
+#    Properties:
+#      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+#      Port: 22884
+#      Protocol: TCP
+#      DefaultActions:
+#        - Type: forward
+#          TargetGroupArn: !Ref FarmNLBSSHTargetGroup
+#
+#  FarmLoadBalancerHTTPListener:
+#    Type: AWS::ElasticLoadBalancingV2::Listener
+#    Properties:
+#      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+#      Port: 80
+#      Protocol: TCP
+#      DefaultActions:
+#        - Type: forward
+#          TargetGroupArn: !Ref FarmNLBHTTPTargetGroup
+#
+#  FarmLoadBalancerHTTPSListener:
+#    Type: AWS::ElasticLoadBalancingV2::Listener
+#    Properties:
+#      LoadBalancerArn: !Ref FarmNetworkLoadBalancer
+#      Port: 443
+#      Protocol: TCP
+#      DefaultActions:
+#        - Type: forward
+#          TargetGroupArn: !Ref FarmNLBHTTPSTargetGroup
